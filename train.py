@@ -31,11 +31,14 @@ print(f"--- Using model config: {model_name} ---")
 
 
 INITIAL_EPOCH = 0
-TOTAL_EPOCHS = 5
+TOTAL_EPOCHS = 10
 END_LEARNING_RATE = 0.00001
 WARMUP_PER = 0.05
-DATASET = 3_000_000
-VAL_DATASET = 150_000
+DATASET = 5_000_000
+VAL_DATASET = 250_000
+DATASET_SHUFFLE = 200_000
+
+
 
 MODEL_SAVE_PATH = params['MODEL_SAVE_PATH']
 PEAK_LEARNING_RATE = params['PEAK_LEARNING_RATE']
@@ -45,9 +48,6 @@ MAX_LEN = params['MAX_LEN']
 EMBED_DIM = params['EMBED_DIM']
 NUM_TRANSFORMER_BLOCKS = params['NUM_TRANSFORMER_BLOCKS']
 NUM_HEADS = params['NUM_HEADS']
-
-
-
 TRAIN_CORPUS_PATH = "data/corpus/train.txt"
 VAL_CORPUS_PATH = "data/corpus/val.txt"
 TOKENIZER_PATH = "data/tokenizer/tokenizer.model"
@@ -78,7 +78,7 @@ def encode_and_shape(text_tensor):
 train_dataset = (
     tf.data.TextLineDataset(TRAIN_CORPUS_PATH)
     .take(DATASET)
-    .shuffle(100)
+    .shuffle(DATASET_SHUFFLE)
     .batch(BATCH_SIZE, drop_remainder=True)
     .map(encode_and_shape, num_parallel_calls=tf.data.AUTOTUNE)
     .prefetch(tf.data.AUTOTUNE)
@@ -96,7 +96,6 @@ val_dataset = (
 print("Created -> Val Pipeline")
 
 if os.path.exists(MODEL_SAVE_PATH):
-    print(f"Load keras model <-'{MODEL_SAVE_PATH}'")
     model = build_model(
         vocab_size=VOCAB_SIZE,
         max_len=MAX_LEN,
@@ -105,7 +104,7 @@ if os.path.exists(MODEL_SAVE_PATH):
         num_heads=NUM_HEADS
     )
     model.load_weights(MODEL_SAVE_PATH)
-    print("Loaded model weights")
+    print(f"Loaded model <-'{MODEL_SAVE_PATH}'")
 else:
     print("404 <- keras model")
     model = build_model(
