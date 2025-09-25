@@ -16,7 +16,7 @@ class TokenAndPositionEmbedding(layers.Layer):
         return x + positions
 
 class TransformerBlock(layers.Layer):
-    def __init__(self, embed_dim, num_heads, rate=0.1, **kwargs):
+    def __init__(self, embed_dim, num_heads, rate=0.35, **kwargs):
         super().__init__(**kwargs)
         ff_dim = embed_dim * 4
         self.att = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim // num_heads)

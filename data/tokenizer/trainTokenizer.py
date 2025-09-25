@@ -1,7 +1,7 @@
 import sentencepiece as spm
 import os
 
-input_file = "data/tokenizer/corpus.shuffled.txt"
+input_file = "data/corpus/corpus_cleaned.txt"
 model_prefix = "data/tokenizer/tokenizer"
 vocab_size = 50000
 model_type = "bpe"
@@ -19,11 +19,12 @@ command = (
     f'--input_sentence_size=1000000 '
     f'--shuffle_input_sentence=true '
     f'--num_threads=6 '
+    f'--max_sentence_length=20000 '
 )
 
-# print("Tokenizer train start")
-# spm.SentencePieceTrainer.train(command)
-# print("Tokenizer train finish!")
+print("Tokenizer train start")
+spm.SentencePieceTrainer.train(command)
+print("Tokenizer train finish!")
 
 print("\n--- Tokenizer test ---")
 sp = spm.SentencePieceProcessor()

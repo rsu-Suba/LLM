@@ -6,6 +6,7 @@ from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoa
 import datetime
 import yaml
 import argparse
+
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
     try:
@@ -29,16 +30,13 @@ else:
 params = config[model_name]
 print(f"--- Using model config: {model_name} ---")
 
-
 INITIAL_EPOCH = 0
-TOTAL_EPOCHS = 10
+TOTAL_EPOCHS = 30
 END_LEARNING_RATE = 0.00001
 WARMUP_PER = 0.05
-DATASET = 5_000_000
-VAL_DATASET = 250_000
+DATASET =  2_000_000
+VAL_DATASET = 50_000
 DATASET_SHUFFLE = 200_000
-
-
 
 MODEL_SAVE_PATH = params['MODEL_SAVE_PATH']
 PEAK_LEARNING_RATE = params['PEAK_LEARNING_RATE']
@@ -53,7 +51,6 @@ VAL_CORPUS_PATH = "data/corpus/val.txt"
 TOKENIZER_PATH = "data/tokenizer/tokenizer.model"
 
 tf.keras.mixed_precision.set_global_policy('mixed_float16')
-
 
 with open(TOKENIZER_PATH, 'rb') as f:
     tokenizer_model = f.read()
@@ -77,13 +74,13 @@ def encode_and_shape(text_tensor):
 
 train_dataset = (
     tf.data.TextLineDataset(TRAIN_CORPUS_PATH)
-    .take(DATASET)
+    # .take(DATASET)
     .shuffle(DATASET_SHUFFLE)
+    .repeat()
     .batch(BATCH_SIZE, drop_remainder=True)
     .map(encode_and_shape, num_parallel_calls=tf.data.AUTOTUNE)
     .prefetch(tf.data.AUTOTUNE)
 )
-
 print("Created -> Train Pipeline")
 
 val_dataset = (
@@ -131,7 +128,8 @@ model_checkpoint_callback = ModelCheckpoint(
     verbose=1
 )
 
-TOTAL_STEPS = DATASET // BATCH_SIZE * TOTAL_EPOCHS
+steps_per_epoch = DATASET // BATCH_SIZE
+TOTAL_STEPS = steps_per_epoch * TOTAL_EPOCHS
 
 lr_schedule = tf.keras.optimizers.schedules.CosineDecay(
     initial_learning_rate=PEAK_LEARNING_RATE,
@@ -149,13 +147,17 @@ class LearningRateLogger(tf.keras.callbacks.Callback):
     def on_batch_end(self, batch, logs=None):
         logs['lr'] = tf.keras.backend.get_value(self.model.optimizer.learning_rate)
 
-lr_logger_callback = LearningRateLogger()
+class ValidationProgressCallback(tf.keras.callbacks.Callback):
+    def on_test_begin(self, logs=None):
+        print("\nStarting validation...")
+        self.val_steps = self.params['steps']
+        self.progbar = tf.keras.utils.Progbar(target=self.val_steps)
 
-model.compile(
-    optimizer=tf.keras.optimizers.AdamW(learning_rate=lr_schedule, clipnorm=1.0, weight_decay=0.01),
-    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-    jit_compile=True
-)
+    def on_test_batch_end(self, batch, logs=None):
+        self.progbar.update(batch + 1, [('val_loss', logs['loss'])])
+
+lr_logger_callback = LearningRateLogger()
+validation_progress_callback = ValidationProgressCallback()
 
 log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 tensorboard_callback = TensorBoard(
@@ -163,6 +165,11 @@ tensorboard_callback = TensorBoard(
     update_freq=50
 )
 
+model.compile(
+    optimizer=tf.keras.optimizers.AdamW(learning_rate=lr_schedule, clipnorm=1.0, weight_decay=0.25),
+    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+    jit_compile=True
+)
 model.summary()
 print("h5 model compiled")
 print(f"\nEpoch {INITIAL_EPOCH + 1} -> {TOTAL_EPOCHS}\n")
@@ -172,10 +179,14 @@ model.fit(
     epochs=TOTAL_EPOCHS,
     initial_epoch=INITIAL_EPOCH,
     validation_data=val_dataset,
-    callbacks=[early_stopping_callback,
-               model_checkpoint_callback,
-               lr_logger_callback,
-               tensorboard_callback]
+    steps_per_epoch=steps_per_epoch,
+    callbacks=[
+        early_stopping_callback,
+        model_checkpoint_callback,
+        lr_logger_callback,
+        tensorboard_callback,
+        validation_progress_callback
+    ]
 )
 
 print("\nModel train finish\n")
