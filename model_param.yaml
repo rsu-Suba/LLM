@@ -1,51 +1,76 @@
-default_model: model_100M
+default_model: gold
 
-model_150M:
-  VOCAB_SIZE: 50000
-  MAX_LEN: 50
-  EMBED_DIM: 640
-  NUM_TRANSFORMER_BLOCKS: 24
-  NUM_HEADS: 16
-  MODEL_SAVE_PATH: "data/model/llm_150M.weights.h5"
-  BATCH_SIZE: 40
-  PEAK_LEARNING_RATE: 0.00015
+# coal :    23M
+# iron :    42M
+# gold :    96M
+# diamond : 135M
 
-model_100M:
-  VOCAB_SIZE: 50000
-  MAX_LEN: 128
-  EMBED_DIM: 512
-  NUM_TRANSFORMER_BLOCKS: 16
-  NUM_HEADS: 16
-  MODEL_SAVE_PATH: "data/model/llm_100M.weights.h5"
-  BATCH_SIZE: 64
-  PEAK_LEARNING_RATE: 0.00075
-
-model_50M:
-  VOCAB_SIZE: 50000
-  MAX_LEN: 50
-  EMBED_DIM: 420
-  NUM_TRANSFORMER_BLOCKS: 16
-  NUM_HEADS: 16
-  MODEL_SAVE_PATH: "data/model/llm_50M.weights.h5"
-  BATCH_SIZE: 100
+coal:
+  VOCAB_SIZE: 28000
+  MAX_LEN: 256
+  EMBED_DIM: 384
+  NUM_TRANSFORMER_BLOCKS: 6
+  NUM_HEADS: 6
+  MODEL_SAVE_PATH: "data/model/coal.weights.h5"
+  BATCH_SIZE: 32
   PEAK_LEARNING_RATE: 0.001
+  generation:
+    prompt: "iPhoneの上側には"
+    max_new_tokens: 50
+    temperature: 0.5
+    top_k: 40
+    top_p: 0.65
+    repetition_penalty: 1.3
+    # forbid_eos_until_step: 10
 
-model_40M:
-  VOCAB_SIZE: 50000
-  MAX_LEN: 64
+iron:
+  VOCAB_SIZE: 28000
+  MAX_LEN: 256
   EMBED_DIM: 512
-  NUM_TRANSFORMER_BLOCKS: 4
+  NUM_TRANSFORMER_BLOCKS: 8
   NUM_HEADS: 8
-  MODEL_SAVE_PATH: "data/model/llm_40M_0-07.weights.h5"
-  BATCH_SIZE: 64
-  PEAK_LEARNING_RATE: 0.0007
+  MODEL_SAVE_PATH: "data/model/iron.weights.h5"
+  BATCH_SIZE: 28
+  PEAK_LEARNING_RATE: 0.0008
+  generation:
+    prompt: "今日はとても天気が良いので、"
+    max_new_tokens: 100
+    temperature: 0.6
+    top_k: 30
+    top_p: 0.8
+    repetition_penalty: 1.2
 
-model_40M-2:
-  VOCAB_SIZE: 50000
-  MAX_LEN: 64
-  EMBED_DIM: 160
-  NUM_TRANSFORMER_BLOCKS: 128
-  NUM_HEADS: 32
-  MODEL_SAVE_PATH: "data/model/llm_40M-2.weights.h5"
-  BATCH_SIZE: 64
-  PEAK_LEARNING_RATE: 0.0007
+gold:
+  VOCAB_SIZE: 28000
+  MAX_LEN: 256
+  EMBED_DIM: 768
+  NUM_TRANSFORMER_BLOCKS: 10
+  NUM_HEADS: 12
+  MODEL_SAVE_PATH: "data/model/gold.weights.h5"
+  BATCH_SIZE: 16
+  PEAK_LEARNING_RATE: 0.0004
+  generation:
+    prompt: "「こんにちは、最近調子はどう？」と私は聞いた。"
+    max_new_tokens: 150
+    temperature: 0.7
+    top_k: 40
+    top_p: 0.8
+    repetition_penalty: 1.15
+
+diamond:
+  VOCAB_SIZE: 28000
+  MAX_LEN: 256
+  EMBED_DIM: 864
+  NUM_TRANSFORMER_BLOCKS: 12
+  NUM_HEADS: 12
+  MODEL_SAVE_PATH: "data/model/diamond.weights.h5"
+  BATCH_SIZE: 16
+  PEAK_LEARNING_RATE: 0.0003
+  generation:
+    prompt: "「こんにちは、何かお手伝いできることはありますか？」"
+    max_new_tokens: 150
+    temperature: 0.55
+    top_k: 25
+    top_p: 0.75
+    repetition_penalty: 1.3
+    forbid_eos_until_step: 15

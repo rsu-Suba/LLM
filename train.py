@@ -1,192 +1,109 @@
 import tensorflow as tf
 import os
-import tensorflow_text as tf_text
-from model import build_model, TokenAndPositionEmbedding, TransformerBlock, TiedOutputDense
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
-import datetime
+import numpy as np
+from model import build_model, TokenAndPositionEmbedding, TransformerBlock, RMSNorm, WarmupCosineDecay, TiedOutput
+from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 import yaml
 import argparse
+
+
+steps_per_epoch = 5000
+TOTAL_EPOCHS = 100
+WARMUP_STEPS = 1000
+
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
     try:
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
-        print(f"Enabled memory growth for {len(gpus)} GPU(s)")
-    except RuntimeError as e:
-        print(e)
+    except: pass
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--config', type=str, default='default', help='Name of the model config to use (e.g., model_150M)')
+parser.add_argument('--model', type=str, default='default')
 args = parser.parse_args()
 
 with open("model_param.yaml", 'r') as f:
     config = yaml.safe_load(f)
 
-if args.config == 'default':
-    model_name = config['default_model']
-else:
-    model_name = args.config
+model_name = config['default_model'] if args.config == 'default' else args.config
 params = config[model_name]
-print(f"--- Using model config: {model_name} ---")
+print(f"--- Train model : {model_name} ---")
 
-INITIAL_EPOCH = 0
-TOTAL_EPOCHS = 30
-END_LEARNING_RATE = 0.00001
-WARMUP_PER = 0.05
-DATASET =  2_000_000
-VAL_DATASET = 50_000
-DATASET_SHUFFLE = 200_000
-
-MODEL_SAVE_PATH = params['MODEL_SAVE_PATH']
-PEAK_LEARNING_RATE = params['PEAK_LEARNING_RATE']
 BATCH_SIZE = params['BATCH_SIZE']
-VOCAB_SIZE = params['VOCAB_SIZE']
 MAX_LEN = params['MAX_LEN']
+VOCAB_SIZE = params['VOCAB_SIZE']
 EMBED_DIM = params['EMBED_DIM']
 NUM_TRANSFORMER_BLOCKS = params['NUM_TRANSFORMER_BLOCKS']
 NUM_HEADS = params['NUM_HEADS']
-TRAIN_CORPUS_PATH = "data/corpus/train.txt"
-VAL_CORPUS_PATH = "data/corpus/val.txt"
-TOKENIZER_PATH = "data/tokenizer/tokenizer.model"
+PEAK_LEARNING_RATE = params['PEAK_LEARNING_RATE']
+MODEL_SAVE_PATH = params['MODEL_SAVE_PATH']
 
 tf.keras.mixed_precision.set_global_policy('mixed_float16')
 
-with open(TOKENIZER_PATH, 'rb') as f:
-    tokenizer_model = f.read()
+def get_hybrid_dataset(bin_path, batch_size, max_len):
+    data = np.memmap(bin_path, dtype=np.uint16, mode='r')
+    total_tokens = len(data)
+    print(f"Streaming from {bin_path} ({total_tokens:,} tokens)")
 
-tokenizer = tf_text.SentencepieceTokenizer(
-    model=tokenizer_model,
-    add_bos=True,
-    add_eos=True
-)
-print("Loaded <- TensorFlow Text Tokenizer")
+    def generator():
+        offsets = np.arange(max_len + 1)
+        while True:
+            starts = np.random.randint(0, total_tokens - (max_len + 1), size=batch_size)
+            idx_matrix = starts[:, None] + offsets[None, :]
+            batch = data[idx_matrix].astype(np.int32)
+            yield batch[:, :-1], batch[:, 1:]
 
-def encode_and_shape(text_tensor):
-    encoded_ragged = tokenizer.tokenize(text_tensor)
-    encoded_tensor = encoded_ragged.to_tensor(
-        default_value=0,
-        shape=[None, MAX_LEN + 1]
+    ds = tf.data.Dataset.from_generator(
+        generator,
+        output_signature=(
+            tf.TensorSpec(shape=(batch_size, max_len), dtype=tf.int32),
+            tf.TensorSpec(shape=(batch_size, max_len), dtype=tf.int32)
+        )
     )
-    x = encoded_tensor[:, :-1]
-    y = encoded_tensor[:, 1:]
-    return x, y
+    return ds.prefetch(2)
 
-train_dataset = (
-    tf.data.TextLineDataset(TRAIN_CORPUS_PATH)
-    # .take(DATASET)
-    .shuffle(DATASET_SHUFFLE)
-    .repeat()
-    .batch(BATCH_SIZE, drop_remainder=True)
-    .map(encode_and_shape, num_parallel_calls=tf.data.AUTOTUNE)
-    .prefetch(tf.data.AUTOTUNE)
-)
-print("Created -> Train Pipeline")
+print("Preparing datasets...")
+train_dataset = get_hybrid_dataset("data/corpus/train.bin", BATCH_SIZE, MAX_LEN)
+val_dataset = get_hybrid_dataset("data/corpus/val.bin", BATCH_SIZE, MAX_LEN)
 
-val_dataset = (
-    tf.data.TextLineDataset(VAL_CORPUS_PATH)
-    .take(VAL_DATASET)
-    .batch(BATCH_SIZE, drop_remainder=True)
-    .map(encode_and_shape, num_parallel_calls=tf.data.AUTOTUNE)
-    .prefetch(tf.data.AUTOTUNE)
-)
-print("Created -> Val Pipeline")
-
+model = build_model(VOCAB_SIZE, MAX_LEN, EMBED_DIM, NUM_TRANSFORMER_BLOCKS, NUM_HEADS)
 if os.path.exists(MODEL_SAVE_PATH):
-    model = build_model(
-        vocab_size=VOCAB_SIZE,
-        max_len=MAX_LEN,
-        embed_dim=EMBED_DIM,
-        num_transformer_blocks=NUM_TRANSFORMER_BLOCKS,
-        num_heads=NUM_HEADS
-    )
-    model.load_weights(MODEL_SAVE_PATH)
-    print(f"Loaded model <-'{MODEL_SAVE_PATH}'")
-else:
-    print("404 <- keras model")
-    model = build_model(
-        vocab_size=VOCAB_SIZE,
-        max_len=MAX_LEN,
-        embed_dim=EMBED_DIM,
-        num_transformer_blocks=NUM_TRANSFORMER_BLOCKS,
-        num_heads=NUM_HEADS
-    )
+    try:
+        model.load_weights(MODEL_SAVE_PATH)
+        print(f"Loaded existing weights <- '{MODEL_SAVE_PATH}'")
+    except:
+        print("Starting from scratch.")
 
-early_stopping_callback = EarlyStopping(
-    monitor='val_loss',
-    patience=5,
-    verbose=1,
-    restore_best_weights=True
-)
-
-model_checkpoint_callback = ModelCheckpoint(
-    filepath=MODEL_SAVE_PATH,
-    save_weights_only=True,
-    monitor='val_loss',
-    mode='min',
-    save_best_only=True,
-    verbose=1
-)
-
-steps_per_epoch = DATASET // BATCH_SIZE
-TOTAL_STEPS = steps_per_epoch * TOTAL_EPOCHS
-
-lr_schedule = tf.keras.optimizers.schedules.CosineDecay(
-    initial_learning_rate=PEAK_LEARNING_RATE,
-    decay_steps=TOTAL_STEPS * (1 - WARMUP_PER),
-    alpha=END_LEARNING_RATE / PEAK_LEARNING_RATE,
-    warmup_target=PEAK_LEARNING_RATE,
-    warmup_steps=int(TOTAL_STEPS * WARMUP_PER)
-)
-
-class LearningRateLogger(tf.keras.callbacks.Callback):
-    def on_epoch_begin(self, epoch, logs=None):
-        current_lr = tf.keras.backend.get_value(self.model.optimizer.learning_rate)
-        print(f"\nEpoch {epoch+1}: Learning rate is {current_lr:.6f}.")
-
-    def on_batch_end(self, batch, logs=None):
-        logs['lr'] = tf.keras.backend.get_value(self.model.optimizer.learning_rate)
-
-class ValidationProgressCallback(tf.keras.callbacks.Callback):
-    def on_test_begin(self, logs=None):
-        print("\nStarting validation...")
-        self.val_steps = self.params['steps']
-        self.progbar = tf.keras.utils.Progbar(target=self.val_steps)
-
-    def on_test_batch_end(self, batch, logs=None):
-        self.progbar.update(batch + 1, [('val_loss', logs['loss'])])
-
-lr_logger_callback = LearningRateLogger()
-validation_progress_callback = ValidationProgressCallback()
-
-log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-tensorboard_callback = TensorBoard(
-    log_dir=log_dir,
-    update_freq=50
+lr_schedule = WarmupCosineDecay(
+    peak_learning_rate=PEAK_LEARNING_RATE,
+    warmup_steps=WARMUP_STEPS,
+    total_steps=steps_per_epoch * TOTAL_EPOCHS,
+    end_learning_rate=1e-5
 )
 
 model.compile(
-    optimizer=tf.keras.optimizers.AdamW(learning_rate=lr_schedule, clipnorm=1.0, weight_decay=0.25),
+    optimizer=tf.keras.optimizers.AdamW(learning_rate=lr_schedule, clipnorm=1.0, epsilon=1e-4),
     loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-    jit_compile=True
-)
-model.summary()
-print("h5 model compiled")
-print(f"\nEpoch {INITIAL_EPOCH + 1} -> {TOTAL_EPOCHS}\n")
-
-model.fit(
-    train_dataset,
-    epochs=TOTAL_EPOCHS,
-    initial_epoch=INITIAL_EPOCH,
-    validation_data=val_dataset,
-    steps_per_epoch=steps_per_epoch,
-    callbacks=[
-        early_stopping_callback,
-        model_checkpoint_callback,
-        lr_logger_callback,
-        tensorboard_callback,
-        validation_progress_callback
-    ]
+    jit_compile=True 
 )
 
-print("\nModel train finish\n")
+checkpoint = ModelCheckpoint(filepath=MODEL_SAVE_PATH, save_weights_only=True, monitor='loss', save_best_only=False, verbose=1)
+early_stop = EarlyStopping(monitor='loss', patience=10, verbose=1)
+
+print(f"\n Starting training...")
+try:
+    model.fit(
+        train_dataset,
+        epochs=TOTAL_EPOCHS,
+        steps_per_epoch=steps_per_epoch,
+        validation_data=val_dataset,
+        validation_steps=10,
+        callbacks=[checkpoint, early_stop]
+    )
+except KeyboardInterrupt:
+    print("\nTraining interrupted by user. Saving weights...")
+    model.save_weights(MODEL_SAVE_PATH)
+    print(f"Weights saved to '{MODEL_SAVE_PATH}'")
+
+print("\nDone.")

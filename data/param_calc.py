@@ -1,37 +1,75 @@
-VOCAB_SIZE = 50000
-MAX_LEN = 64
-EMBED_DIM = 160
-NUM_TRANSFORMER_BLOCKS = 128
-NUM_HEADS = 32
+import yaml
+import argparse
+import os
 
-def calc():
-    PosEmbed = (VOCAB_SIZE + MAX_LEN) * EMBED_DIM
-    print("Position Embedding: " + f"{PosEmbed:,}")
+def calc_params(params):
+    vocab_size = params['VOCAB_SIZE']
+    max_len = params['MAX_LEN']
+    embed_dim = params['EMBED_DIM']
+    num_blocks = params['NUM_TRANSFORMER_BLOCKS']
+    num_heads = params['NUM_HEADS']
 
-    key_dim = EMBED_DIM // NUM_HEADS
-    total_dim = key_dim * NUM_HEADS
-    qkv = 3 * ((EMBED_DIM + 1) * total_dim)
-    out = (total_dim + 1) * EMBED_DIM
-    att_param = qkv + out
-    print("Multi-Head: " + f"{att_param:,}")
+    print(f"\n--- Model Spec: {embed_dim} dim, {num_blocks} layers, {num_heads} heads, {vocab_size} vocab ---")
+    
+    # 1. Embedding
+    token_embed = vocab_size * embed_dim
+    pos_embed = max_len * embed_dim
+    pos_token_embed = token_embed + pos_embed
+    print(f"  Embedding (Token+Pos): {pos_token_embed:,}")
 
-    FF_DIM = EMBED_DIM * 4
-    ffn1 = (EMBED_DIM + 1) * FF_DIM
-    ffn2 = (FF_DIM + 1) * EMBED_DIM
+    # 2. Transformer Blocks
+    # Multi-Head Attention
+    qkv = 3 * (embed_dim * embed_dim + embed_dim)
+    wo = embed_dim * embed_dim + embed_dim
+    att_param = qkv + wo
+    
+    # Feed Forward
+    ff_dim = embed_dim * 4
+    ffn1 = embed_dim * ff_dim + ff_dim
+    ffn2 = ff_dim * embed_dim + embed_dim
     ffn_param = ffn1 + ffn2
-    print("Feed Forward: " + f"{ffn_param:,}")
+    
+    # RMSNorm
+    rmsnorm_param = embed_dim * 2
+    
+    block_param = att_param + ffn_param + rmsnorm_param
+    total_transformer = block_param * num_blocks
+    print(f"  Transformer Blocks:    {total_transformer:,} ({num_blocks} x {block_param:,})")
 
-    lnorm = 2 * EMBED_DIM * 2
-    print("LayerNorm: " + f"{lnorm:,}")
+    # 3. Final Layers
+    final_norm = embed_dim
+    output_bias = vocab_size
+    final_layers = final_norm + output_bias
+    print(f"  Final Layers (Norm+Bias): {final_layers:,}")
 
-    transformer_param = (att_param + ffn_param + lnorm) * NUM_TRANSFORMER_BLOCKS
-    print("Transformer: " + f"{transformer_param:,}")
-
-    dense_param = VOCAB_SIZE
-    print("Dense: " + f"{dense_param:,}")
-
-    param = PosEmbed + transformer_param + dense_param
-    return f"{param:,}"
+    # Total
+    total = pos_token_embed + total_transformer + final_layers
+    print("-" * 45)
+    print(f"  TOTAL PARAMETERS:      {total:,}")
+    print(f"  APPROXIMATE SIZE:      {total / 1e6:.2f} M")
+    return total
 
 if __name__ == '__main__':
-    print("Total model param: " + calc())
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model', type=str, default='default', help='Config name from model_param.yaml')
+    args = parser.parse_args()
+
+    yaml_path = "model_param.yaml"
+    if not os.path.exists(yaml_path):
+        print(f"Error: {yaml_path} not found.")
+        exit(1)
+
+    with open(yaml_path, 'r') as f:
+        config = yaml.safe_load(f)
+
+    if args.config == 'default':
+        model_name = config['default_model']
+    else:
+        model_name = args.config
+
+    if model_name not in config:
+        print(f"Error: Config '{model_name}' not found in {yaml_path}")
+        exit(1)
+
+    print(f"Using config: {model_name}")
+    calc_params(config[model_name])

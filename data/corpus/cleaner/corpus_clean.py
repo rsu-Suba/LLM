@@ -5,6 +5,7 @@ from collections import Counter
 from janome.tokenizer import Tokenizer
 from tqdm import tqdm
 import unicodedata
+from ng_words import ng_words
 
 MIN_LENGTH = 50
 MAX_LENGTH = 30000
@@ -13,9 +14,6 @@ SYMBOL_RATIO_THRESHOLD = 0.3
 NGRAM_REPETITION_THRESHOLD = 0.2
 NOUN_RATIO_THRESHOLD = 0.8
 ADULT_KEYWORD_REMOVAL_PROB = 0.9
-
-ADULT_KEYWORDS = ["アダルト", "成人向け", "出会い", "無料動画"]
-AD_KEYWORDS = ["激安", "セール", "キャンペーン", "限定価格"]
 
 CONTROL_CHAR_REGEX = re.compile(r'[\x00-\x1f\x7f]')
 URL_REGEX = re.compile(r'https?://[^\s/$.?#].[^\s]*')
@@ -63,7 +61,7 @@ def has_high_symbol_ratio(doc):
 
 def is_likely_unwanted_content(doc):
     doc_lower = doc.lower()
-    for keyword in ADULT_KEYWORDS + AD_KEYWORDS:
+    for keyword in ng_words + ng_words:
         if keyword in doc_lower:
             return random.random() < ADULT_KEYWORD_REMOVAL_PROB
     return False

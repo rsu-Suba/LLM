@@ -1,132 +1,112 @@
 import tensorflow as tf
 import tensorflow_text as tf_text
-from model import build_model, TokenAndPositionEmbedding, TransformerBlock, TiedOutputDense
+from model import build_model, TokenAndPositionEmbedding, TransformerBlock, RMSNorm, WarmupCosineDecay, TiedOutput
 import yaml
 import argparse
 import os
+import numpy as np
+import sentencepiece as spm
+import sys
+import time
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
     try:
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
-        print(f"Enabled memory growth for {len(gpus)} GPU(s)")
-    except RuntimeError as e:
-        print(e)
+    except: pass
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--config', type=str, default='default', help='Name of the model config to use (e.g., model_150M)')
+parser.add_argument('--model', type=str, default='default')
+parser.add_argument('--prompt', type=str, default=None)
 args = parser.parse_args()
 
 with open("model_param.yaml", 'r') as f:
-    config = yaml.safe_load(f)
+    config_file = yaml.safe_load(f)
 
-if args.config == 'default':
-    model_name = config['default_model']
-else:
-    model_name = args.config
-params = config[model_name]
-print(f"--- Using model config: {model_name} ---")
+model_name = config_file['default_model'] if args.config == 'default' else args.config
+params = config_file[model_name]
+gen_params = params.get('generation', {})
 
-tf.keras.mixed_precision.set_global_policy('mixed_float16')
-TOKENIZER_PATH = "data/tokenizer/tokenizer.model"
 MODEL_SAVE_PATH = params['MODEL_SAVE_PATH']
 MAX_LEN = params['MAX_LEN']
+TOKENIZER_PATH = "data/tokenizer/tokenizer.model"
 
-NUM_TOKENS_TO_GENERATE = 100
-TEMPERATURE = 1.4
-TOP_K = 50
-TOP_P = 0.95
-REPETITION_PENALTY = 2.0
-FORBID_EOS_UNTIL_STEP = 10
-prompt = "人工知能とは、"
+PROMPT = args.prompt if args.prompt else gen_params.get('prompt', "こんにちは")
+TARGET_TOKENS = gen_params.get('max_new_tokens', 100)
+ABS_MAX_TOKENS = 1000
+TEMPERATURE = gen_params.get('temperature', 0.8)
+TOP_K = gen_params.get('top_k', 40)
+TOP_P = gen_params.get('top_p', 0.9)
+REPETITION_PENALTY = gen_params.get('repetition_penalty', 1.2)
 
-with open(TOKENIZER_PATH, 'rb') as f:
-    tokenizer_model = f.read()
-tokenizer = tf_text.SentencepieceTokenizer(
-    model=tokenizer_model,
-    add_bos=True,
-    add_eos=False
-)
-print("Loaded <- TensorFlow Text Tokenizer")
+tf.keras.mixed_precision.set_global_policy('mixed_float16')
 
-model = build_model(
-    vocab_size=params['VOCAB_SIZE'],
-    max_len=params['MAX_LEN'],
-    embed_dim=params['EMBED_DIM'],
-    num_transformer_blocks=params['NUM_TRANSFORMER_BLOCKS'],
-    num_heads=params['NUM_HEADS']
-)
+sp = spm.SentencePieceProcessor(model_file=TOKENIZER_PATH)
+model = build_model(params['VOCAB_SIZE'], params['MAX_LEN'], params['EMBED_DIM'], params['NUM_TRANSFORMER_BLOCKS'], params['NUM_HEADS'])
 model.load_weights(MODEL_SAVE_PATH)
-print(f"Loaded model weights <-'{MODEL_SAVE_PATH}'")
 
-def top_k_top_p_logits(logits, k=0, p=1.0):
-    if k > 0:
-        values, _ = tf.math.top_k(logits, k=k)
-        min_values = values[:, -1, tf.newaxis]
-        logits = tf.where(logits < min_values, -1e9, logits)
-    if p < 1.0:
-        sorted_logits = tf.sort(logits, direction='DESCENDING')
-        cumulative_probs = tf.cumsum(tf.nn.softmax(sorted_logits, axis=-1), axis=-1)
-        cutoff_index = tf.argmax(cumulative_probs > p, axis=-1)
-        cutoff_value = tf.gather(sorted_logits, cutoff_index, batch_dims=1)
-        logits = tf.where(logits < cutoff_value[:, tf.newaxis], -1e9, logits)
-    return logits
+from generation_utils import top_k_top_p_logits
 
-@tf.function
-def predict_next(input_tokens):
-    return model(input_tokens, training=False)[:, -1, :]
+def sample(logits):
+    logits = logits / TEMPERATURE
+    logits = top_k_top_p_logits(logits, k=TOP_K, p=TOP_P)
+    return tf.random.categorical(logits, 1)[0, 0].numpy()
+
+print("\n---Prompting---")
+print(f"Input: {PROMPT}")
 
 print("\n--- Generating ---")
-print(f"Input: {prompt}")
+sys.stdout.write(f"Result: {PROMPT}")
+sys.stdout.flush()
 
-initial_tokens_list = tokenizer.tokenize([prompt]).to_list()[0]
-generated_tokens_ids = initial_tokens_list[:]
+generated_ids = sp.encode(PROMPT)
+initial_len = len(generated_ids)
+eos_id = sp.eos_id()
+pad_id = sp.pad_id()
 
-eos_id = int(tokenizer.string_to_id("</s>").numpy())
-pad_id = int(tokenizer.string_to_id("<pad>").numpy())
+last_printed_len = len(PROMPT)
+start_time = time.time()
 
-for step in range(NUM_TOKENS_TO_GENERATE):
-    current_sequence = generated_tokens_ids[-MAX_LEN:]
-    padded_input = tf.keras.preprocessing.sequence.pad_sequences(
-        [current_sequence], maxlen=MAX_LEN, padding='post', value=pad_id
-    )
-    input_tensor = tf.convert_to_tensor(padded_input, dtype=tf.int32)
-
-    logits = predict_next(input_tensor)
-    logits = tf.cast(logits, tf.float32)
-
-    if generated_tokens_ids:
-        unique_ids = tf.constant(list(set(generated_tokens_ids)), dtype=tf.int32)
-        
-        penalty_values = tf.gather(logits, unique_ids, axis=1)
-        penalty_values = tf.where(penalty_values > 0, penalty_values / REPETITION_PENALTY, penalty_values * REPETITION_PENALTY)
-        
-        indices = tf.expand_dims(unique_ids, axis=1)
-        batch_indices = tf.zeros_like(indices)
-        indices = tf.concat([batch_indices, indices], axis=1)
-        
-        updates = tf.squeeze(penalty_values, axis=0)
-        
-        logits = tf.tensor_scatter_nd_update(logits, indices, updates)
-
-    logits = tf.tensor_scatter_nd_update(logits, [[0, pad_id]], [-1e9])
-    if step < FORBID_EOS_UNTIL_STEP:
-        logits = tf.tensor_scatter_nd_update(logits, [[0, eos_id]], [-1e9])
-
-    logits /= TEMPERATURE
-    logits = top_k_top_p_logits(logits, k=TOP_K, p=TOP_P)
+for step in range(ABS_MAX_TOKENS):
+    curr_input = generated_ids[-MAX_LEN:]
+    padded_input = tf.keras.preprocessing.sequence.pad_sequences([curr_input], maxlen=MAX_LEN, padding='post', value=pad_id)
     
-    next_token_id = tf.random.categorical(logits, 1)[0, 0]
-    next_token_id = int(next_token_id.numpy())
-
-    if next_token_id == eos_id:
+    logits = model(padded_input, training=False)[0, len(curr_input)-1, :]
+    logits = tf.cast(logits, tf.float32)
+    
+    logits_np = logits.numpy()
+    for gid in set(generated_ids):
+        if logits_np[gid] > 0:
+            logits_np[gid] /= REPETITION_PENALTY
+        else:
+            logits_np[gid] *= REPETITION_PENALTY
+    
+    next_id = int(sample(tf.convert_to_tensor([logits_np])))
+    
+    if next_id == eos_id:
         break
         
-    generated_tokens_ids.append(next_token_id)
+    generated_ids.append(next_id)
+    
+    full_text = sp.decode(generated_ids)
+    new_text = full_text[last_printed_len:]
+    sys.stdout.write(new_text)
+    sys.stdout.flush()
+    last_printed_len = len(full_text)
+    new_tokens_count = len(generated_ids) - initial_len
+    
+    if new_tokens_count >= TARGET_TOKENS:
+        if any(mark in new_text for mark in ["。", "！", "？", "!", "?"]):
+            break
 
-output_ids = generated_tokens_ids[len(initial_tokens_list):]
-generated_text = tokenizer.detokenize([output_ids]).numpy()[0].decode('utf-8')
+end_time = time.time()
+elapsed = end_time - start_time
+total_generated = len(generated_ids) - initial_len
 
-print("\n--- Result ---")
-print(prompt + generated_text)
+print("\n\n--- Finished ---")
+print(f"  Generated tokens: {total_generated}")
+print(f"  Time taken:       {elapsed:.2f} sec")
+print(f"  Tokens per sec:   {total_generated / elapsed:.2f} tokens/s")
+print(f"  Parameters:       Temp={TEMPERATURE}, Top-K={TOP_K}, Top-P={TOP_P}, Penalty={REPETITION_PENALTY}")
+print("-" * 25)

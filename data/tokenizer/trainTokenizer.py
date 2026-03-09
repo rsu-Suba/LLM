@@ -1,9 +1,9 @@
 import sentencepiece as spm
 import os
 
-input_file = "data/corpus/corpus_cleaned.txt"
+input_file = "data/corpus/train.txt"
 model_prefix = "data/tokenizer/tokenizer"
-vocab_size = 50000
+vocab_size = 28000
 model_type = "bpe"
 
 command = (
@@ -11,32 +11,37 @@ command = (
     f'--model_prefix={model_prefix} '
     f'--vocab_size={vocab_size} '
     f'--model_type={model_type} '
-    f'--character_coverage=0.9995 '
+    f'--character_coverage=1.0 '
+    f'--byte_fallback=true '
     f'--pad_id=0 '
     f'--unk_id=1 '
     f'--bos_id=2 '
     f'--eos_id=3 '
     f'--input_sentence_size=1000000 '
     f'--shuffle_input_sentence=true '
-    f'--num_threads=6 '
+    f'--num_threads=8 '
     f'--max_sentence_length=20000 '
+    f'--split_by_whitespace=false '
 )
 
-print("Tokenizer train start")
+print(f"Training Tokenizer (Vocab: {vocab_size}, Type: {model_type})")
 spm.SentencePieceTrainer.train(command)
 print("Tokenizer train finish!")
 
-print("\n--- Tokenizer test ---")
+print("\n--- New Tokenizer test ---")
 sp = spm.SentencePieceProcessor()
 sp.load(f'{model_prefix}.model')
 
-text1 = "大規模言語モデル"
-encoded = sp.encode_as_pieces(text1)
-ids = sp.encode_as_ids(text1)
+test_texts = [
+    "",
+    "",
+    ""
+]
 
-print(f"Input: {text1}")
-print(f"Tokenizer: {encoded}")
-print(f"ID convert: {ids}")
-
-decoded = sp.decode_ids(ids)
-print(f"Decoded: {decoded}")
+for text in test_texts:
+    encoded = sp.encode_as_pieces(text)
+    ids = sp.encode_as_ids(text)
+    print(f"\nInput: {text}")
+    print(f"Pieces: {encoded}")
+    print(f"IDs: {ids}")
+    print(f"Decoded: {sp.decode_ids(ids)}")

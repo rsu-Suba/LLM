@@ -1,12 +1,18 @@
 *.keras
 *.h5
 *.weight.h5
-/logs/**/
-/data/corpus/**
-/data/extracted_text/
-/venv/
-command.txt
 
-model_old.py
-review_GPT2.py
-review_old.py
+/logs/**/
+
+/data/corpus/*
+!/data/corpus/*.py
+!/data/corpus/cleaner/
+
+/data/corpus/cleaner/ng_words.py
+
+/data/extracted_text/
+
+/venv/
+.env
+__pycache__/
+*.py[cod]
