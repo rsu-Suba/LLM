@@ -7,21 +7,21 @@ default_model: gold
 
 coal:
   VOCAB_SIZE: 28000
-  MAX_LEN: 256
+  MAX_LEN: 192
   EMBED_DIM: 384
   NUM_TRANSFORMER_BLOCKS: 6
   NUM_HEADS: 6
-  MODEL_SAVE_PATH: "data/model/coal.weights.h5"
-  BATCH_SIZE: 32
-  PEAK_LEARNING_RATE: 0.001
+  NUM_KV_HEADS: 2
+  MODEL_SAVE_PATH: "model/coal.weights.h5"
+  BATCH_SIZE: 48
+  PEAK_LEARNING_RATE: 0.0002
   generation:
-    prompt: "iPhoneの上側には"
-    max_new_tokens: 50
-    temperature: 0.5
+    prompt: "おいしいオムライスを作るのに大事なことは"
+    max_new_tokens: 60
+    temperature: 0.7
     top_k: 40
-    top_p: 0.65
-    repetition_penalty: 1.3
-    # forbid_eos_until_step: 10
+    top_p: 0.8
+    repetition_penalty: 1.4
 
 iron:
   VOCAB_SIZE: 28000
@@ -29,7 +29,7 @@ iron:
   EMBED_DIM: 512
   NUM_TRANSFORMER_BLOCKS: 8
   NUM_HEADS: 8
-  MODEL_SAVE_PATH: "data/model/iron.weights.h5"
+  MODEL_SAVE_PATH: "model/iron.weights.h5"
   BATCH_SIZE: 28
   PEAK_LEARNING_RATE: 0.0008
   generation:
@@ -42,35 +42,58 @@ iron:
 
 gold:
   VOCAB_SIZE: 28000
-  MAX_LEN: 256
+  MAX_LEN: 768
   EMBED_DIM: 768
-  NUM_TRANSFORMER_BLOCKS: 10
+  FF_DIM: 2048
+  NUM_TRANSFORMER_BLOCKS: 14
   NUM_HEADS: 12
-  MODEL_SAVE_PATH: "data/model/gold.weights.h5"
-  BATCH_SIZE: 16
-  PEAK_LEARNING_RATE: 0.0004
+  NUM_KV_HEADS: 4
+  MODEL_SAVE_PATH: "model/gold.weights.h5"
+  BATCH_SIZE: 8
+  GRAD_ACCUM_STEPS: 12
+  PEAK_LEARNING_RATE: 5.0e-5
   generation:
-    prompt: "「こんにちは、最近調子はどう？」と私は聞いた。"
-    max_new_tokens: 150
+    prompt: "犬と猫の違いは、"
+    max_new_tokens: 40
     temperature: 0.7
     top_k: 40
-    top_p: 0.8
-    repetition_penalty: 1.15
+    top_p: 0.7
+    repetition_penalty: 1.2
 
 diamond:
   VOCAB_SIZE: 28000
-  MAX_LEN: 256
-  EMBED_DIM: 864
-  NUM_TRANSFORMER_BLOCKS: 12
+  MAX_LEN: 192
+  EMBED_DIM: 768
+  NUM_TRANSFORMER_BLOCKS: 20
   NUM_HEADS: 12
-  MODEL_SAVE_PATH: "data/model/diamond.weights.h5"
-  BATCH_SIZE: 16
-  PEAK_LEARNING_RATE: 0.0003
+  NUM_KV_HEADS: 12
+  MODEL_SAVE_PATH: "model/diamond.weights.h5"
+  BATCH_SIZE: 24
+  PEAK_LEARNING_RATE: 0.0000025
   generation:
-    prompt: "「こんにちは、何かお手伝いできることはありますか？」"
-    max_new_tokens: 150
-    temperature: 0.55
-    top_k: 25
-    top_p: 0.75
-    repetition_penalty: 1.3
-    forbid_eos_until_step: 15
+    prompt: "おいしいオムライスを作るために大事なことは、"
+    max_new_tokens: 40
+    temperature: 0.85
+    top_k: 40
+    top_p: 0.8
+    repetition_penalty: 1.45
+
+ruby:
+  VOCAB_SIZE: 28000
+  MAX_LEN: 512
+  EMBED_DIM: 768
+  FF_DIM: 5120
+  NUM_TRANSFORMER_BLOCKS: 10
+  NUM_HEADS: 16
+  NUM_KV_HEADS: 4
+  MODEL_SAVE_PATH: "model/ruby.weights.h5"
+  BATCH_SIZE: 4
+  GRAD_ACCUM_STEPS: 32
+  PEAK_LEARNING_RATE: 4.0e-4
+  generation:
+    prompt: "犬と猫の違いは、"
+    max_new_tokens: 40
+    temperature: 0.85
+    top_k: 45
+    top_p: 0.85
+    repetition_penalty: 1.1
