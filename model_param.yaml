@@ -64,7 +64,6 @@ diamond:
   VOCAB_SIZE: 28000
   MAX_LEN: 192
   EMBED_DIM: 768
-  NUM_TRANSFORMER_BLOCKS: 20
   NUM_HEADS: 12
   NUM_KV_HEADS: 12
   MODEL_SAVE_PATH: "model/diamond.weights.h5"
@@ -72,11 +71,11 @@ diamond:
   PEAK_LEARNING_RATE: 0.0000025
   generation:
     prompt: "おいしいオムライスを作るために大事なことは、"
-    max_new_tokens: 40
-    temperature: 0.85
-    top_k: 40
-    top_p: 0.8
-    repetition_penalty: 1.45
+    max_new_tokens: 60
+    temperature: 0.1
+    top_k: 30
+    top_p: 0.65
+    repetition_penalty: 1.4
 
 ruby:
   VOCAB_SIZE: 28000
@@ -87,13 +86,33 @@ ruby:
   NUM_HEADS: 16
   NUM_KV_HEADS: 4
   MODEL_SAVE_PATH: "model/ruby.weights.h5"
-  BATCH_SIZE: 4
-  GRAD_ACCUM_STEPS: 32
-  PEAK_LEARNING_RATE: 4.0e-4
+  BATCH_SIZE: 24
+  GRAD_ACCUM_STEPS: 48
+  PEAK_LEARNING_RATE: 5.0e-5
   generation:
     prompt: "犬と猫の違いは、"
     max_new_tokens: 40
-    temperature: 0.85
-    top_k: 45
-    top_p: 0.85
+    temperature: 0.1
+    top_k: 40
+    top_p: 0.8
+    repetition_penalty: 1.15
+
+diamond_1B:
+  VOCAB_SIZE: 28000
+  MAX_LEN: 512
+  EMBED_DIM: 2048
+  FF_DIM: 5504
+  NUM_TRANSFORMER_BLOCKS: 20
+  NUM_HEADS: 16
+  NUM_KV_HEADS: 4
+  MODEL_SAVE_PATH: "model/diamond_1B.weights.h5"
+  BATCH_SIZE: 1
+  GRAD_ACCUM_STEPS: 128
+  PEAK_LEARNING_RATE: 2.0e-4
+  generation:
+    prompt: "犬と猫の違いは、"
+    max_new_tokens: 40
+    temperature: 0.65
+    top_k: 40
+    top_p: 0.8
     repetition_penalty: 1.1

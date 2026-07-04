@@ -1,7 +1,7 @@
 import tensorflow as tf
 import os
 import tensorflow_text as tf_text
-from model import build_model, TokenAndPositionEmbedding, TransformerBlock, RMSNorm, WarmupCosineDecay, TiedOutput
+from model import build_model, TokenEmbedding, TransformerBlock, RMSNorm, WarmupCosineDecay, TiedOutput
 import yaml
 import argparse
 
@@ -14,8 +14,8 @@ if gpus:
     except RuntimeError as e:
         print(e)
 
-parser = argparse.ArgumentParser(description="Trained LLM evaluation script.")
-parser.add_argument('--model', type=str, default='default', help='Name of the model config to use')
+parser = argparse.ArgumentParser()
+parser.add_argument('--model', type=str, default='default')
 args = parser.parse_args()
 
 with open("model_param.yaml", 'r') as f:
@@ -33,36 +33,30 @@ EMBED_DIM = params['EMBED_DIM']
 NUM_TRANSFORMER_BLOCKS = params['NUM_TRANSFORMER_BLOCKS']
 NUM_HEADS = params['NUM_HEADS']
 
-VAL_CORPUS_PATH = "data/corpus/val.txt"
-TOKENIZER_PATH = "data/tokenizer/tokenizer.model"
-VAL_DATASET_SIZE = 10000
+VAL_BIN_PATH = "data/corpus/token/val.bin"
+VAL_SAMPLES = 3000
 
 tf.keras.mixed_precision.set_global_policy('mixed_float16')
 
-import sentencepiece as spm
-sp = spm.SentencePieceProcessor(model_file=TOKENIZER_PATH)
-print("Loaded <- Tokenizer")
+import numpy as np
 
-def encode_and_shape(text_tensor):
-    with open(TOKENIZER_PATH, 'rb') as f:
-        m = f.read()
-    tokenizer_tf = tf_text.SentencepieceTokenizer(model=m, add_bos=True, add_eos=True)
+def load_val(batch_size, max_len):
+    raw = np.fromfile(VAL_BIN_PATH, dtype=np.uint16).astype(np.int32)
+    total = len(raw) // (max_len + 1)
+    data = raw[:total * (max_len + 1)].reshape((total, max_len + 1))
     
-    encoded_ragged = tokenizer_tf.tokenize(text_tensor)
-    encoded_tensor = encoded_ragged.to_tensor(default_value=0, shape=[None, MAX_LEN + 1])
-    x = encoded_tensor[:, :-1]
-    y = encoded_tensor[:, 1:]
-    return x, y
+    np.random.seed(42)
+    idx = np.random.choice(total, min(VAL_SAMPLES, total), replace=False)
+    sampled = data[idx]
+    
+    ds = tf.data.Dataset.from_tensor_slices(sampled)
+    ds = ds.batch(batch_size, drop_remainder=True)
+    ds = ds.map(lambda b: (b[:, :-1], b[:, 1:]), num_parallel_calls=tf.data.AUTOTUNE)
+    return ds.prefetch(tf.data.AUTOTUNE)
 
-val_dataset = (
-    tf.data.TextLineDataset(VAL_CORPUS_PATH)
-    .take(VAL_DATASET_SIZE)
-    .batch(BATCH_SIZE, drop_remainder=True)
-    .map(encode_and_shape, num_parallel_calls=tf.data.AUTOTUNE)
-    .prefetch(tf.data.AUTOTUNE)
-)
+val_dataset = load_val(BATCH_SIZE, MAX_LEN)
 
-model = build_model(VOCAB_SIZE, MAX_LEN, EMBED_DIM, NUM_TRANSFORMER_BLOCKS, NUM_HEADS)
+model = build_model(VOCAB_SIZE, MAX_LEN, EMBED_DIM, NUM_TRANSFORMER_BLOCKS, NUM_HEADS, num_kv_heads=params.get('NUM_KV_HEADS'))
 model.load_weights(MODEL_SAVE_PATH)
 print(f"Loaded weights <-'{MODEL_SAVE_PATH}'")
 
@@ -75,4 +69,3 @@ perplexity = tf.exp(validation_loss)
 print("\n--- Evaluation Results ---")
 print(f"Validation Loss: {validation_loss:.4f}")
 print(f"Perplexity:      {perplexity:.4f}")
-print("-" * 25)

@@ -42,5 +42,6 @@ def process_file(input_path, output_path):
     print(f"Total tokens: {len(final_ids):,}\n")
 
 if __name__ == "__main__":
-    process_file("data/corpus/train.txt", "data/corpus/train.bin")
-    process_file("data/corpus/val.txt", "data/corpus/val.bin")
+    process_file("data/corpus/text/train.txt", "data/corpus/token/train.bin")
+    process_file("data/corpus/text/val.txt", "data/corpus/token/val.bin")
+    

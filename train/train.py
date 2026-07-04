@@ -1,15 +1,15 @@
 import tensorflow as tf
 import os
 import numpy as np
-from model import build_model, TokenAndPositionEmbedding, TransformerBlock, RMSNorm, WarmupCosineDecay, TiedOutput
+from model import build_model, TokenEmbedding, TransformerBlock, RMSNorm, WarmupCosineDecay, TiedOutput
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 import yaml
 import argparse
 
 
 steps_per_epoch = 5000
-TOTAL_EPOCHS = 100
-WARMUP_STEPS = 1000
+TOTAL_EPOCHS = 20
+WARMUP_STEPS = 500
 
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -26,7 +26,7 @@ args = parser.parse_args()
 with open("model_param.yaml", 'r') as f:
     config = yaml.safe_load(f)
 
-model_name = config['default_model'] if args.config == 'default' else args.config
+model_name = config['default_model'] if args.model == 'default' else args.model
 params = config[model_name]
 print(f"--- Train model : {model_name} ---")
 
@@ -38,8 +38,9 @@ NUM_TRANSFORMER_BLOCKS = params['NUM_TRANSFORMER_BLOCKS']
 NUM_HEADS = params['NUM_HEADS']
 PEAK_LEARNING_RATE = params['PEAK_LEARNING_RATE']
 MODEL_SAVE_PATH = params['MODEL_SAVE_PATH']
+GRAD_ACCUM_STEPS = params['GRAD_ACCUM_STEPS']
 
-tf.keras.mixed_precision.set_global_policy('mixed_float16')
+tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')
 
 def get_hybrid_dataset(bin_path, batch_size, max_len):
     data = np.memmap(bin_path, dtype=np.uint16, mode='r')
@@ -64,10 +65,11 @@ def get_hybrid_dataset(bin_path, batch_size, max_len):
     return ds.prefetch(2)
 
 print("Preparing datasets...")
-train_dataset = get_hybrid_dataset("data/corpus/train.bin", BATCH_SIZE, MAX_LEN)
-val_dataset = get_hybrid_dataset("data/corpus/val.bin", BATCH_SIZE, MAX_LEN)
+train_dataset = get_hybrid_dataset("data/corpus/token/train_wiki.bin", BATCH_SIZE, MAX_LEN)
+val_dataset   = get_hybrid_dataset("data/corpus/token/val_wiki.bin", BATCH_SIZE, MAX_LEN)
 
-model = build_model(VOCAB_SIZE, MAX_LEN, EMBED_DIM, NUM_TRANSFORMER_BLOCKS, NUM_HEADS)
+model = build_model(VOCAB_SIZE, MAX_LEN, EMBED_DIM, NUM_TRANSFORMER_BLOCKS, NUM_HEADS,
+                    num_kv_heads=params.get('NUM_KV_HEADS'), ff_dim=params.get('FF_DIM'))
 if os.path.exists(MODEL_SAVE_PATH):
     try:
         model.load_weights(MODEL_SAVE_PATH)
@@ -75,21 +77,44 @@ if os.path.exists(MODEL_SAVE_PATH):
     except:
         print("Starting from scratch.")
 
+actual_steps_per_epoch = steps_per_epoch // GRAD_ACCUM_STEPS
+actual_total_steps = actual_steps_per_epoch * TOTAL_EPOCHS
+actual_warmup_steps = WARMUP_STEPS // GRAD_ACCUM_STEPS
+
 lr_schedule = WarmupCosineDecay(
     peak_learning_rate=PEAK_LEARNING_RATE,
-    warmup_steps=WARMUP_STEPS,
-    total_steps=steps_per_epoch * TOTAL_EPOCHS,
-    end_learning_rate=1e-5
+    warmup_steps=actual_warmup_steps,
+    total_steps=actual_total_steps,
+    end_learning_rate=PEAK_LEARNING_RATE / 10.0
 )
 
 model.compile(
-    optimizer=tf.keras.optimizers.AdamW(learning_rate=lr_schedule, clipnorm=1.0, epsilon=1e-4),
-    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-    jit_compile=True 
+    optimizer=tf.keras.optimizers.AdamW(
+        learning_rate=lr_schedule, 
+        clipnorm=1.0, 
+        epsilon=1e-4,
+        gradient_accumulation_steps=GRAD_ACCUM_STEPS
+    ),
+    loss=tf.keras.losses.SparseCategoricalCrossentropy(
+        from_logits=True,
+        ignore_class=0
+    ),
+    jit_compile=True
 )
 
-checkpoint = ModelCheckpoint(filepath=MODEL_SAVE_PATH, save_weights_only=True, monitor='loss', save_best_only=False, verbose=1)
-early_stop = EarlyStopping(monitor='loss', patience=10, verbose=1)
+checkpoint = ModelCheckpoint(
+    filepath=MODEL_SAVE_PATH, 
+    save_weights_only=True, 
+    monitor='val_loss', 
+    save_best_only=True, 
+    verbose=1
+)
+early_stop = EarlyStopping(
+    monitor='val_loss', 
+    patience=3, 
+    restore_best_weights=True,
+    verbose=1
+)
 
 print(f"\n Starting training...")
 try:
@@ -98,7 +123,7 @@ try:
         epochs=TOTAL_EPOCHS,
         steps_per_epoch=steps_per_epoch,
         validation_data=val_dataset,
-        validation_steps=10,
+        validation_steps=100,
         callbacks=[checkpoint, early_stop]
     )
 except KeyboardInterrupt:

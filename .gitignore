@@ -9,6 +9,7 @@
 !/data/corpus/cleaner/
 
 /data/corpus/cleaner/ng_words.py
+/data/corpus/create_coherence_val.py
 
 /data/extracted_text/
 

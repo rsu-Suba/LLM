@@ -104,9 +104,8 @@ class RoPEMultiHeadAttention(layers.Layer):
     def _repeat_kv(self, x, n_rep):
         if n_rep == 1:
             return x
-        # x shape: (B, S, n_kv, D)
-        x = tf.expand_dims(x, axis=3)  # (B, S, n_kv, 1, D)
-        x = tf.tile(x, [1, 1, 1, n_rep, 1])  # (B, S, n_kv, n_rep, D)
+        x = tf.expand_dims(x, axis=3)
+        x = tf.tile(x, [1, 1, 1, n_rep, 1])
         return tf.reshape(x, (tf.shape(x)[0], tf.shape(x)[1], self.num_heads, self.head_dim))
 
     def call(self, x, attention_mask=None, training=False):
@@ -124,7 +123,6 @@ class RoPEMultiHeadAttention(layers.Layer):
         q = self._apply_rope(q, seq_len)
         k = self._apply_rope(k, seq_len)
 
-        # GQA: Repeat Key/Value for each Query head
         k = self._repeat_kv(k, self.num_queries_per_kv)
         v = self._repeat_kv(v, self.num_queries_per_kv)
 
@@ -186,7 +184,7 @@ class SwiGLU(layers.Layer):
 
 @register_serializable
 class TransformerBlock(layers.Layer):
-    def __init__(self, embed_dim, num_heads, num_kv_heads=None, ff_dim=None, rate=0.03, **kwargs):
+    def __init__(self, embed_dim, num_heads, num_kv_heads=None, ff_dim=None, rate=0.0, **kwargs):
         super().__init__(**kwargs)
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -196,8 +194,6 @@ class TransformerBlock(layers.Layer):
         head_dim = embed_dim // num_heads
 
         self.att = RoPEMultiHeadAttention(num_heads=num_heads, head_dim=head_dim, num_kv_heads=self.num_kv_heads)
-
-        # SwiGLU Configuration
         self.ffn = SwiGLU(self.ff_dim)
         self.wo = layers.Dense(embed_dim, use_bias=False, kernel_initializer=std_init())
 
@@ -311,7 +307,7 @@ def build_model(vocab_size, max_len, embed_dim, num_transformer_blocks, num_head
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, default='default', help='Name of the model config to use')
+    parser.add_argument('--model', type=str, default='default')
     args = parser.parse_args()
 
     yaml_path = "model_param.yaml"

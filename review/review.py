@@ -1,6 +1,6 @@
 import tensorflow as tf
-import tensorflow_text as tf_text
-from model import build_model, TokenAndPositionEmbedding, TransformerBlock, RMSNorm, WarmupCosineDecay, TiedOutput
+# import tensorflow_text as tf_text
+from model import build_model, TokenEmbedding, TransformerBlock, RMSNorm, WarmupCosineDecay, TiedOutput
 import yaml
 import argparse
 import os
@@ -24,7 +24,7 @@ args = parser.parse_args()
 with open("model_param.yaml", 'r') as f:
     config_file = yaml.safe_load(f)
 
-model_name = config_file['default_model'] if args.config == 'default' else args.config
+model_name = config_file['default_model'] if args.model == 'default' else args.model
 params = config_file[model_name]
 gen_params = params.get('generation', {})
 
@@ -43,17 +43,21 @@ REPETITION_PENALTY = gen_params.get('repetition_penalty', 1.2)
 tf.keras.mixed_precision.set_global_policy('mixed_float16')
 
 sp = spm.SentencePieceProcessor(model_file=TOKENIZER_PATH)
-model = build_model(params['VOCAB_SIZE'], params['MAX_LEN'], params['EMBED_DIM'], params['NUM_TRANSFORMER_BLOCKS'], params['NUM_HEADS'])
+num_kv = params.get('NUM_KV_HEADS', None)
+ff_dim = params.get('FF_DIM', None)
+model = build_model(params['VOCAB_SIZE'], params['MAX_LEN'], params['EMBED_DIM'], params['NUM_TRANSFORMER_BLOCKS'], params['NUM_HEADS'], num_kv_heads=num_kv, ff_dim=ff_dim)
 model.load_weights(MODEL_SAVE_PATH)
 
 from generation_utils import top_k_top_p_logits
 
 def sample(logits):
+    if TEMPERATURE == 0.0:
+        return tf.argmax(logits, axis=-1)[0].numpy()
     logits = logits / TEMPERATURE
     logits = top_k_top_p_logits(logits, k=TOP_K, p=TOP_P)
     return tf.random.categorical(logits, 1)[0, 0].numpy()
 
-print("\n---Prompting---")
+print("\n---Prompt---")
 print(f"Input: {PROMPT}")
 
 print("\n--- Generating ---")
@@ -109,4 +113,3 @@ print(f"  Generated tokens: {total_generated}")
 print(f"  Time taken:       {elapsed:.2f} sec")
 print(f"  Tokens per sec:   {total_generated / elapsed:.2f} tokens/s")
 print(f"  Parameters:       Temp={TEMPERATURE}, Top-K={TOP_K}, Top-P={TOP_P}, Penalty={REPETITION_PENALTY}")
-print("-" * 25)

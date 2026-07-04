@@ -4,7 +4,7 @@ import os
 from collections import Counter
 
 TOKENIZER_PATH = "data/tokenizer/tokenizer.model"
-BIN_PATH = "data/corpus/train.bin"
+BIN_PATH = "data/corpus/token/train.bin"
 target_word = ""
 
 def count_tokens(target_word=target_word, top_n=20):
