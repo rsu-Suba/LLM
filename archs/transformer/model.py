@@ -310,7 +310,8 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, default='default')
     args = parser.parse_args()
 
-    yaml_path = "model_param.yaml"
+    import os
+    yaml_path = os.path.join(os.path.dirname(__file__), "param.yaml")
     if os.path.exists(yaml_path):
         with open(yaml_path, 'r') as f:
             config = yaml.safe_load(f)
@@ -318,7 +319,7 @@ if __name__ == '__main__':
         model_name = config['default_model'] if args.model == 'default' else args.model
         if model_name in config:
             p = config[model_name]
-            print(f"--- Model Summary: {model_name} ---")
+            print(f"--- Displaying Model Summary: {model_name} ---")
             num_kv = p.get('NUM_KV_HEADS', None)
             ff_dim = p.get('FF_DIM', None)
             model = build_model(p['VOCAB_SIZE'], p['MAX_LEN'], p['EMBED_DIM'], p['NUM_TRANSFORMER_BLOCKS'], p['NUM_HEADS'], num_kv_heads=num_kv, ff_dim=ff_dim)

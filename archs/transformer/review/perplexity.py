@@ -1,6 +1,11 @@
 import tensorflow as tf
 import os
+import sys
 import tensorflow_text as tf_text
+import numpy as np
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_HERE, '..'))
+sys.path.insert(1, os.path.join(_HERE, '../../..'))
 from model import build_model, TokenEmbedding, TransformerBlock, RMSNorm, WarmupCosineDecay, TiedOutput
 import yaml
 import argparse
@@ -18,14 +23,14 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default='default')
 args = parser.parse_args()
 
-with open("model_param.yaml", 'r') as f:
+with open(os.path.join(os.path.dirname(__file__), "../param.yaml"), 'r') as f:
     config = yaml.safe_load(f)
 
 model_name = config['default_model'] if args.model == 'default' else args.model
 params = config[model_name]
 print(f"--- Evaluating Model: {model_name} ---")
 
-MODEL_SAVE_PATH = params['MODEL_SAVE_PATH']
+MODEL_SAVE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../", params['MODEL_SAVE_PATH'])
 BATCH_SIZE = params['BATCH_SIZE']
 VOCAB_SIZE = params['VOCAB_SIZE']
 MAX_LEN = params['MAX_LEN']
@@ -38,17 +43,15 @@ VAL_SAMPLES = 3000
 
 tf.keras.mixed_precision.set_global_policy('mixed_float16')
 
-import numpy as np
-
 def load_val(batch_size, max_len):
     raw = np.fromfile(VAL_BIN_PATH, dtype=np.uint16).astype(np.int32)
     total = len(raw) // (max_len + 1)
     data = raw[:total * (max_len + 1)].reshape((total, max_len + 1))
-    
+
     np.random.seed(42)
     idx = np.random.choice(total, min(VAL_SAMPLES, total), replace=False)
     sampled = data[idx]
-    
+
     ds = tf.data.Dataset.from_tensor_slices(sampled)
     ds = ds.batch(batch_size, drop_remainder=True)
     ds = ds.map(lambda b: (b[:, :-1], b[:, 1:]), num_parallel_calls=tf.data.AUTOTUNE)

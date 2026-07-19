@@ -1,9 +1,11 @@
 default_model: gold
 
 # coal :    23M
-# iron :    42M
-# gold :    96M
+# iron :    48M
+# gold :    109M
 # diamond : 135M
+# ruby : 154M
+# diamond_1B : 943M
 
 coal:
   VOCAB_SIZE: 28000
@@ -12,7 +14,7 @@ coal:
   NUM_TRANSFORMER_BLOCKS: 6
   NUM_HEADS: 6
   NUM_KV_HEADS: 2
-  MODEL_SAVE_PATH: "model/coal.weights.h5"
+  MODEL_SAVE_PATH: "models/coal.weights.h5"
   BATCH_SIZE: 48
   PEAK_LEARNING_RATE: 0.0002
   generation:
@@ -29,7 +31,7 @@ iron:
   EMBED_DIM: 512
   NUM_TRANSFORMER_BLOCKS: 8
   NUM_HEADS: 8
-  MODEL_SAVE_PATH: "model/iron.weights.h5"
+  MODEL_SAVE_PATH: "models/iron.weights.h5"
   BATCH_SIZE: 28
   PEAK_LEARNING_RATE: 0.0008
   generation:
@@ -48,7 +50,7 @@ gold:
   NUM_TRANSFORMER_BLOCKS: 14
   NUM_HEADS: 12
   NUM_KV_HEADS: 4
-  MODEL_SAVE_PATH: "model/gold.weights.h5"
+  MODEL_SAVE_PATH: "models/gold.weights.h5"
   BATCH_SIZE: 8
   GRAD_ACCUM_STEPS: 12
   PEAK_LEARNING_RATE: 5.0e-5
@@ -57,16 +59,17 @@ gold:
     max_new_tokens: 40
     temperature: 0.7
     top_k: 40
-    top_p: 0.7
-    repetition_penalty: 1.2
+    top_p: 0.8
+    repetition_penalty: 1.15
 
 diamond:
   VOCAB_SIZE: 28000
   MAX_LEN: 192
   EMBED_DIM: 768
+  NUM_TRANSFORMER_BLOCKS: 12
   NUM_HEADS: 12
   NUM_KV_HEADS: 12
-  MODEL_SAVE_PATH: "model/diamond.weights.h5"
+  MODEL_SAVE_PATH: "models/diamond.weights.h5"
   BATCH_SIZE: 24
   PEAK_LEARNING_RATE: 0.0000025
   generation:
@@ -85,7 +88,7 @@ ruby:
   NUM_TRANSFORMER_BLOCKS: 10
   NUM_HEADS: 16
   NUM_KV_HEADS: 4
-  MODEL_SAVE_PATH: "model/ruby.weights.h5"
+  MODEL_SAVE_PATH: "models/ruby.weights.h5"
   BATCH_SIZE: 24
   GRAD_ACCUM_STEPS: 48
   PEAK_LEARNING_RATE: 5.0e-5
@@ -105,7 +108,7 @@ diamond_1B:
   NUM_TRANSFORMER_BLOCKS: 20
   NUM_HEADS: 16
   NUM_KV_HEADS: 4
-  MODEL_SAVE_PATH: "model/diamond_1B.weights.h5"
+  MODEL_SAVE_PATH: "models/diamond_1B.weights.h5"
   BATCH_SIZE: 1
   GRAD_ACCUM_STEPS: 128
   PEAK_LEARNING_RATE: 2.0e-4

@@ -1,5 +1,10 @@
-import tensorflow as tf, numpy as np, os, yaml, time
+import tensorflow as tf, numpy as np, yaml, time
 import sentencepiece as spm
+import os
+import sys
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_HERE, '..'))
+sys.path.insert(1, os.path.join(_HERE, '../../..'))
 from model import build_model, TokenEmbedding, TransformerBlock, RMSNorm, WarmupCosineDecay, TiedOutput
 from generation_utils import top_k_top_p_logits
 
@@ -11,7 +16,7 @@ if gpus:
 
 tf.keras.mixed_precision.set_global_policy('mixed_float16')
 
-with open("model_param.yaml") as f:
+with open(os.path.join(os.path.dirname(__file__), "../param.yaml")) as f:
     cfg = yaml.safe_load(f)
 
 sp = spm.SentencePieceProcessor(model_file="data/tokenizer/tokenizer.model")
@@ -70,17 +75,19 @@ for t in TARGETS:
     REP = gen.get("repetition_penalty", 1.2)
     BS = p.get("BATCH_SIZE", 16)
 
-    print(f"  {t['label']}  ({t['path']})")
+    model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../", t["path"])
+
+    print(f"  {t['label']}  ({model_path})")
     print(f"  Config: EMBED={p['EMBED_DIM']} Blocks={p['NUM_TRANSFORMER_BLOCKS']} KV={p.get('NUM_KV_HEADS','full')}")
 
-    if not os.path.exists(t["path"]):
+    if not os.path.exists(model_path):
         print("ファイルなし"); continue
 
     model = build_model(p['VOCAB_SIZE'], MAX_LEN, p['EMBED_DIM'], p['NUM_TRANSFORMER_BLOCKS'], p['NUM_HEADS'], num_kv_heads=p.get('NUM_KV_HEADS'))
     if t["by_name"]:
-        model.load_weights(t["path"], by_name=True)
+        model.load_weights(model_path, by_name=True)
     else:
-        model.load_weights(t["path"])
+        model.load_weights(model_path)
     print(f"ロード完了  params={model.count_params():,}")
 
     t0 = time.time()
@@ -96,7 +103,7 @@ for t in TARGETS:
     print(f"  PPL : {ppl:.1f}  (Loss={loss:.4f},  samples={n:,})")
 
     results.append({
-        "label": t["label"], "path": t["path"],
+        "label": t["label"], "path": model_path,
         "params": model.count_params(),
         "ppl": ppl, "loss": float(loss),
         "text": text, "gen_tok": gen_tok, "gen_t": gen_t,

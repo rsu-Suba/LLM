@@ -1,12 +1,15 @@
 import tensorflow as tf
 # import tensorflow_text as tf_text
+import os
+import sys
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_HERE, '..'))
+sys.path.insert(1, os.path.join(_HERE, '../../..'))
 from model import build_model, TokenEmbedding, TransformerBlock, RMSNorm, WarmupCosineDecay, TiedOutput
 import yaml
 import argparse
-import os
 import numpy as np
 import sentencepiece as spm
-import sys
 import time
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -21,14 +24,15 @@ parser.add_argument('--model', type=str, default='default')
 parser.add_argument('--prompt', type=str, default=None)
 args = parser.parse_args()
 
-with open("model_param.yaml", 'r') as f:
+import os
+with open(os.path.join(os.path.dirname(__file__), "../param.yaml"), 'r') as f:
     config_file = yaml.safe_load(f)
 
 model_name = config_file['default_model'] if args.model == 'default' else args.model
 params = config_file[model_name]
 gen_params = params.get('generation', {})
 
-MODEL_SAVE_PATH = params['MODEL_SAVE_PATH']
+MODEL_SAVE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../", params['MODEL_SAVE_PATH'])
 MAX_LEN = params['MAX_LEN']
 TOKENIZER_PATH = "data/tokenizer/tokenizer.model"
 

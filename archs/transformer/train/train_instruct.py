@@ -1,5 +1,7 @@
 import tensorflow as tf
 import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import numpy as np
 from model import build_model, WarmupCosineDecay
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
@@ -23,7 +25,8 @@ parser.add_argument('--base_weights', type=str, default=None)
 parser.add_argument('--output_weights', type=str, default=None)
 args = parser.parse_args()
 
-with open("model_param.yaml", 'r') as f:
+import os
+with open(os.path.join(os.path.dirname(__file__), "../param.yaml"), 'r') as f:
     config = yaml.safe_load(f)
 
 model_name = config['default_model'] if args.model == 'default' else args.model
@@ -36,11 +39,13 @@ VOCAB_SIZE = params['VOCAB_SIZE']
 EMBED_DIM = params['EMBED_DIM']
 NUM_TRANSFORMER_BLOCKS = params['NUM_TRANSFORMER_BLOCKS']
 NUM_HEADS = params['NUM_HEADS']
-PEAK_LEARNING_RATE = params['PEAK_LEARNING_RATE'] / 5.0 
+PEAK_LEARNING_RATE = params['PEAK_LEARNING_RATE'] / 5.0
 GRAD_ACCUM_STEPS = params['GRAD_ACCUM_STEPS']
 
-BASE_WEIGHTS = args.base_weights if args.base_weights else params['MODEL_SAVE_PATH']
+_base_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../", params['MODEL_SAVE_PATH'])
+BASE_WEIGHTS = args.base_weights if args.base_weights else _base_path
 INSTRUCT_WEIGHTS = args.output_weights if args.output_weights else BASE_WEIGHTS.replace('.weights.h5', '_instruct.weights.h5')
+os.makedirs(os.path.dirname(BASE_WEIGHTS), exist_ok=True)
 
 tf.keras.mixed_precision.set_global_policy('mixed_float16')
 
@@ -73,7 +78,7 @@ elif os.path.exists(BASE_WEIGHTS):
     print(f"Loaded Base weights for fine-tuning <- '{BASE_WEIGHTS}'")
 else:
     print("Warning: No base weights found! Starting from scratch.")
-    
+
 INSTRUCT_LEARNING_RATE = 2.0e-5
 
 lr_schedule = WarmupCosineDecay(
@@ -85,9 +90,9 @@ lr_schedule = WarmupCosineDecay(
 
 model.compile(
     optimizer=tf.keras.optimizers.AdamW(
-        learning_rate=lr_schedule, 
-        clipnorm=1.0, 
-        epsilon=1e-4, 
+        learning_rate=lr_schedule,
+        clipnorm=1.0,
+        epsilon=1e-4,
         gradient_accumulation_steps=GRAD_ACCUM_STEPS
     ),
     loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),

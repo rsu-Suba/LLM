@@ -1,0 +1,4 @@
+python models/latent_brain/v4_entropy/train/train.py \
+    --model iron \
+    --train_bin data/corpus/token/train_10B.bin \
+    --val_bin data/corpus/token/val_wiki.bin

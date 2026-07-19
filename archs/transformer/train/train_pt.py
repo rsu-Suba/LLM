@@ -135,11 +135,12 @@ if __name__ == "__main__":
     parser.add_argument('--resume_step', type=int, default=0)
     args = parser.parse_args()
 
-    with open("model_param.yaml", "r") as f:
+    import os
+    with open(os.path.join(os.path.dirname(__file__), "../param.yaml"), "r") as f:
         config = yaml.safe_load(f)
     
     if args.model not in config:
-        print(f"Error: {args.model} not found in model_param.yaml")
+        print(f"Error: {args.model} not found in param.yaml")
         exit(1)
         
     p = config[args.model]
@@ -147,7 +148,8 @@ if __name__ == "__main__":
     BIN_PATH = "data/corpus/token/train_10B.bin"
     VAL_BIN_PATH = "data/corpus/token/val_5M.bin"
     MODEL_SAVE_PATH = p['MODEL_SAVE_PATH'].replace(".weights.h5", ".pt")
-    
+    MODEL_SAVE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../", MODEL_SAVE_PATH)
+    os.makedirs(os.path.dirname(MODEL_SAVE_PATH), exist_ok=True)
     BATCH_SIZE = p['BATCH_SIZE']
     GRAD_ACCUM_STEPS = p.get('GRAD_ACCUM_STEPS', 1)
     MAX_LEN = p['MAX_LEN']

@@ -1,0 +1,7 @@
+tensorflow>=2.15.0
+tensorflow-text>=2.15.0
+torch>=2.2.0
+transformers>=4.40.0
+numpy>=1.26.0
+sentencepiece>=0.1.99
+pyyaml>=6.0

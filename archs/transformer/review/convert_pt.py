@@ -1,4 +1,3 @@
-# Reasoning for PyTorch model (.pt)
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,6 +8,11 @@ import numpy as np
 import sentencepiece as spm
 import sys
 import time
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_HERE, '..'))
+sys.path.insert(1, os.path.join(_HERE, '../../..'))
+
 
 class RMSNorm(nn.Module):
     def __init__(self, dim, eps=1e-6):
@@ -21,19 +25,18 @@ class RMSNorm(nn.Module):
         variance = x_f32.pow(2).mean(-1, keepdim=True)
         return (x_f32 * torch.rsqrt(variance + self.eps)).type_as(x) * self.weight
 
+
 def apply_rope(x, cos_buffer, sin_buffer):
     B, S, H, D = x.shape
     cos = cos_buffer[:, :S, :, :].to(x.dtype)
     sin = sin_buffer[:, :S, :, :].to(x.dtype)
-    
     x1 = x[..., 0::2]
     x2 = x[..., 1::2]
-    
     rx1 = x1 * cos - x2 * sin
     rx2 = x1 * sin + x2 * cos
-    
     res = torch.stack([rx1, rx2], dim=-1)
     return res.view_as(x)
+
 
 class RoPEMultiHeadAttention(nn.Module):
     def __init__(self, embed_dim, num_heads, num_kv_heads):
@@ -70,6 +73,7 @@ class RoPEMultiHeadAttention(nn.Module):
         attn_out = attn_out.transpose(1, 2).contiguous().view(B, S, -1)
         return self.o_proj(attn_out)
 
+
 class SwiGLU(nn.Module):
     def __init__(self, dim, ff_dim):
         super().__init__()
@@ -78,6 +82,7 @@ class SwiGLU(nn.Module):
 
     def forward(self, x):
         return F.silu(self.w1(x)) * self.w2(x)
+
 
 class TransformerBlock(nn.Module):
     def __init__(self, embed_dim, num_heads, num_kv_heads=None, ff_dim=None):
@@ -93,6 +98,7 @@ class TransformerBlock(nn.Module):
         x = x + self.wo(self.ffn(self.norm2(x)))
         return x
 
+
 class TokenEmbedding(nn.Module):
     def __init__(self, vocab_size, embed_dim):
         super().__init__()
@@ -102,6 +108,7 @@ class TokenEmbedding(nn.Module):
     def forward(self, x):
         return self.norm(self.token_emb(x))
 
+
 class TiedOutput(nn.Module):
     def __init__(self, vocab_size, embedding_weight):
         super().__init__()
@@ -110,6 +117,7 @@ class TiedOutput(nn.Module):
 
     def forward(self, x):
         return F.linear(x, self.embedding_weight, self.bias)
+
 
 class PyTorchModel(nn.Module):
     def __init__(self, vocab_size, embed_dim, num_blocks, num_heads, num_kv_heads=None, ff_dim=None, max_len=768):
@@ -121,7 +129,7 @@ class PyTorchModel(nn.Module):
         ])
         self.norm = RMSNorm(embed_dim)
         self.output_layer = TiedOutput(vocab_size, self.embedding.token_emb.weight)
-        
+
         head_dim = embed_dim // num_heads
         pos = torch.arange(max_len, dtype=torch.float32)
         indices = torch.arange(0, head_dim, 2, dtype=torch.float32)
@@ -141,10 +149,11 @@ class PyTorchModel(nn.Module):
         x = self.norm(x)
         return self.output_layer(x)
 
-def load_or_convert_model(model_name, params):
-    model_save_path = params['MODEL_SAVE_PATH']
+
+def load_or_convert_model(model_name, params, base_dir):
+    model_save_path = os.path.join(base_dir, params['MODEL_SAVE_PATH'])
     converted_pt_path = model_save_path.replace('.weights.h5', '_converted.pt')
-    
+
     vocab_size = params['VOCAB_SIZE']
     max_len = params['MAX_LEN']
     embed_dim = params['EMBED_DIM']
@@ -152,20 +161,20 @@ def load_or_convert_model(model_name, params):
     num_heads = params['NUM_HEADS']
     num_kv = params.get('NUM_KV_HEADS', num_heads)
     ff_dim = params.get('FF_DIM', int(embed_dim * 8 / 3))
-    
+
     pt_model = PyTorchModel(vocab_size, embed_dim, num_blocks, num_heads, num_kv_heads=num_kv, ff_dim=ff_dim, max_len=max_len)
-    
+
     if os.path.exists(converted_pt_path):
         pt_model.load_state_dict(torch.load(converted_pt_path, map_location='cpu'))
         return pt_model
-        
+
     print(f"Converting Keras weights from {model_save_path} to PyTorch...")
     import tensorflow as tf
     from model import build_model as build_tf_model
-    
+
     tf_model = build_tf_model(vocab_size, max_len, embed_dim, num_blocks, num_heads, num_kv_heads=num_kv, ff_dim=ff_dim)
     tf_model.load_weights(model_save_path)
-    
+
     tf_weights = tf_model.weights
     w_idx = 0
 
@@ -202,12 +211,13 @@ def load_or_convert_model(model_name, params):
     w_idx += 1
 
     assert w_idx == len(tf_weights), f"Used {w_idx} weights, but TF model has {len(tf_weights)} weights"
-    
+
     os.makedirs(os.path.dirname(converted_pt_path), exist_ok=True)
     torch.save(pt_model.state_dict(), converted_pt_path)
     print(f"Saved converted PyTorch weights to {converted_pt_path}.")
-    
+
     return pt_model
+
 
 def sample(logits, temp, top_k, top_p):
     if temp == 0.0:
@@ -227,6 +237,7 @@ def sample(logits, temp, top_k, top_p):
     probs = F.softmax(logits, dim=-1)
     return torch.multinomial(probs, num_samples=1).item()
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default='default')
@@ -238,7 +249,9 @@ if __name__ == "__main__":
     parser.add_argument('--penalty', type=float, default=None)
     args = parser.parse_args()
 
-    with open("model_param.yaml", 'r') as f:
+    import os
+    BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../")
+    with open(os.path.join(os.path.dirname(__file__), "../param.yaml"), 'r') as f:
         config_file = yaml.safe_load(f)
 
     model_name = config_file['default_model'] if args.model == 'default' else args.model
@@ -260,8 +273,8 @@ if __name__ == "__main__":
     print(f"Loading model '{model_name}' to {device}...")
 
     sp = spm.SentencePieceProcessor(model_file=TOKENIZER_PATH)
-    model = load_or_convert_model(model_name, params)
-    
+    model = load_or_convert_model(model_name, params, BASE_DIR)
+
     if device.type == "mps":
         model.to(dtype=torch.bfloat16, device=device)
     else:
@@ -286,33 +299,33 @@ if __name__ == "__main__":
         for step in range(ABS_MAX_TOKENS):
             curr_input = generated_ids[-MAX_LEN:]
             input_tensor = torch.tensor([curr_input], dtype=torch.long, device=device)
-            
+
             logits = model(input_tensor)
             next_token_logits = logits[0, -1, :].float().unsqueeze(0)
-            
+
             for gid in set(generated_ids):
                 if next_token_logits[0, gid] > 0:
                     next_token_logits[0, gid] /= REPETITION_PENALTY
                 else:
                     next_token_logits[0, gid] *= REPETITION_PENALTY
-            
+
             new_tokens_count = len(generated_ids) - initial_len
             if new_tokens_count < TARGET_TOKENS:
                 next_token_logits[0, eos_id] = -float('Inf')
-            
+
             next_id = sample(next_token_logits, TEMPERATURE, TOP_K, TOP_P)
-            
+
             if next_id == eos_id:
                 break
-                
+
             generated_ids.append(next_id)
-            
+
             full_text = sp.decode(generated_ids)
             new_text = full_text[last_printed_len:]
             sys.stdout.write(new_text)
             sys.stdout.flush()
             last_printed_len = len(full_text)
-            
+
             new_tokens_count = len(generated_ids) - initial_len
             if new_tokens_count >= TARGET_TOKENS:
                 if any(mark in new_text for mark in ["。", "！", "？", "!", "?"]):
@@ -326,5 +339,4 @@ if __name__ == "__main__":
     print(f"  Generated tokens: {total_generated}")
     print(f"  Time taken:       {elapsed:.2f} sec")
     print(f"  Tokens per sec:   {total_generated / elapsed:.2f} tokens/s")
-    print(f"  Parameters:       Temp={TEMPERATURE}, Top-K={TOP_K}, Top-P={TOP_P}, Penalty={REPETITION_PENALTY}")
-    print("-" * 25)
+    print(f"  Parameters:       Temp={TEMPERATURE}, Top-K={TOP_K}, Top-P={TOP_P}, Penalty={REPETITION_PENALTY}\n")

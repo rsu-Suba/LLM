@@ -1,5 +1,7 @@
 import tensorflow as tf
 import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import numpy as np
 from model import build_model, TokenEmbedding, TransformerBlock, RMSNorm, WarmupCosineDecay, TiedOutput
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
@@ -23,7 +25,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default='default')
 args = parser.parse_args()
 
-with open("model_param.yaml", 'r') as f:
+import os
+with open(os.path.join(os.path.dirname(__file__), "../param.yaml"), 'r') as f:
     config = yaml.safe_load(f)
 
 model_name = config['default_model'] if args.model == 'default' else args.model
@@ -37,7 +40,8 @@ EMBED_DIM = params['EMBED_DIM']
 NUM_TRANSFORMER_BLOCKS = params['NUM_TRANSFORMER_BLOCKS']
 NUM_HEADS = params['NUM_HEADS']
 PEAK_LEARNING_RATE = params['PEAK_LEARNING_RATE']
-MODEL_SAVE_PATH = params['MODEL_SAVE_PATH']
+MODEL_SAVE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../", params['MODEL_SAVE_PATH'])
+os.makedirs(os.path.dirname(MODEL_SAVE_PATH), exist_ok=True)
 GRAD_ACCUM_STEPS = params['GRAD_ACCUM_STEPS']
 
 tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')

@@ -7,7 +7,9 @@ import sentencepiece as spm
 import sys
 import time
 
-from train_1B import Diamond1B
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_HERE, '..'))
+from train.train_pt import ModelPT as Diamond1B
 
 def sample(logits, temp, top_k, top_p):
     if temp == 0.0:
@@ -39,14 +41,15 @@ if __name__ == "__main__":
     parser.add_argument('--prompt', type=str, default=None)
     args = parser.parse_args()
 
-    with open("model_param.yaml", 'r') as f:
+    import os
+    with open(os.path.join(os.path.dirname(__file__), "../param.yaml"), 'r') as f:
         config_file = yaml.safe_load(f)
 
     model_name = config_file['default_model'] if args.model == 'default' else args.model
     params = config_file[model_name]
     gen_params = params.get('generation', {})
 
-    MODEL_SAVE_PATH = "model/diamond_1B.pt"
+    MODEL_SAVE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../", params.get('MODEL_SAVE_PATH', "models/diamond_1B.weights.h5").replace(".weights.h5", ".pt"))
     MAX_LEN = params['MAX_LEN']
     TOKENIZER_PATH = "data/tokenizer/tokenizer.model"
 

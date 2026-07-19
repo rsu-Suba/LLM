@@ -1,4 +1,9 @@
 import tensorflow as tf
+import os
+import sys
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_HERE, '..'))
+sys.path.insert(1, os.path.join(_HERE, '../../..'))
 from model import build_model
 from generation_utils import top_k_top_p_logits
 import yaml
@@ -20,17 +25,16 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default='default')
 args = parser.parse_args()
 
-with open("model_param.yaml", 'r') as f:
+with open(os.path.join(os.path.dirname(__file__), "../param.yaml"), 'r') as f:
     config_file = yaml.safe_load(f)
 
 model_name = config_file['default_model'] if args.model == 'default' else args.model
 params = config_file[model_name]
 gen_params = params.get('generation', {})
 
-BASE_WEIGHTS = params['MODEL_SAVE_PATH']
-INSTRUCT_WEIGHTS = BASE_WEIGHTS.replace('.weights.h5', '_inst.weights.h5')
-
-MODEL_SAVE_PATH = INSTRUCT_WEIGHTS if os.path.exists(INSTRUCT_WEIGHTS) else BASE_WEIGHTS
+_base_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../", params['MODEL_SAVE_PATH'])
+INSTRUCT_WEIGHTS = _base_path.replace('.weights.h5', '_instruct.weights.h5')
+MODEL_SAVE_PATH = INSTRUCT_WEIGHTS if os.path.exists(INSTRUCT_WEIGHTS) else _base_path
 
 MAX_LEN = params['MAX_LEN']
 TOKENIZER_PATH = "data/tokenizer/tokenizer.model"
@@ -40,8 +44,7 @@ TOP_P = gen_params.get('top_p', 0.8)
 REPETITION_PENALTY = gen_params.get('repetition_penalty', 1.1)
 
 sp = spm.SentencePieceProcessor(model_file=TOKENIZER_PATH)
-model = build_model(params['VOCAB_SIZE'], params['MAX_LEN'], params['EMBED_DIM'], 
-                    params['NUM_TRANSFORMER_BLOCKS'], params['NUM_HEADS'], num_kv_heads=params.get('NUM_KV_HEADS'))
+model = build_model(params['VOCAB_SIZE'], params['MAX_LEN'], params['EMBED_DIM'], params['NUM_TRANSFORMER_BLOCKS'], params['NUM_HEADS'], num_kv_heads=params.get('NUM_KV_HEADS'))
 
 print(f"Loading weights from {MODEL_SAVE_PATH}...")
 model.load_weights(MODEL_SAVE_PATH)
@@ -55,10 +58,10 @@ def sample(logits):
     return tf.random.categorical(logits, 1)[0, 0].numpy()
 
 def chat():
-    print("  Chat: 'exit' or 'quit' to stop")
-    print(f"  モード: {'対話モデル (Instruct)' if '_inst' in MODEL_SAVE_PATH else 'ベースモデル (Base)'}")
+    print(f"\nChat: 'exit' or 'quit' to stop")
+    print(f"  モード: {'対話モデル (Instruct)' if '_instruct' in MODEL_SAVE_PATH else 'ベースモデル (Base)'}")
     print(f"  Parameters:       Temp={TEMPERATURE}, Top-K={TOP_K}, Top-P={TOP_P}, Penalty={REPETITION_PENALTY}")
-    
+
     history = ""
     eos_id = sp.eos_id()
     pad_id = sp.pad_id()
@@ -68,51 +71,50 @@ def chat():
             user_input = input("ユーザー: ")
         except (EOFError, KeyboardInterrupt):
             break
-            
+
         if user_input.lower() in ['exit', 'quit']:
             break
         if not user_input.strip():
             continue
-            
+
         prompt = f"ユーザー: {user_input}\nAI: "
         history += prompt
-        
+
         sys.stdout.write("AI: ")
         sys.stdout.flush()
-        
+
         generated_ids = sp.encode(history)
-        initial_len = len(generated_ids)
         last_printed_len = len(history)
-        
+
         for step in range(MAX_LEN):
             curr_input = generated_ids[-MAX_LEN:]
             padded_input = tf.keras.preprocessing.sequence.pad_sequences([curr_input], maxlen=MAX_LEN, padding='post', value=pad_id)
-            
+
             logits = model(padded_input, training=False)[0, len(curr_input)-1, :]
             logits = tf.cast(logits, tf.float32).numpy()
-            
+
             for gid in set(generated_ids):
                 if logits[gid] > 0:
                     logits[gid] /= REPETITION_PENALTY
                 else:
                     logits[gid] *= REPETITION_PENALTY
-                    
+
             next_id = int(sample(tf.convert_to_tensor([logits])))
-            
+
             if next_id == eos_id:
                 history += " <EOS>\n"
                 break
-                
+
             generated_ids.append(next_id)
-            
+
             full_text = sp.decode(generated_ids)
             new_text = full_text[last_printed_len:]
             sys.stdout.write(new_text)
             sys.stdout.flush()
-            
+
             last_printed_len = len(full_text)
             history = full_text
-            
+
         print("\n")
 
 if __name__ == '__main__':
